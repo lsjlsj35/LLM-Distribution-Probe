@@ -3,9 +3,9 @@ import json
 import random
 import torch
 from torch.optim import SGD
-# from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 
-from main import probe_dist
+from main import probe_dist, load_model
 
 
 def preparing_prob_and_rank():
@@ -76,16 +76,32 @@ def train(dataset_suffix=0.0):
     ]
 
 
+def test_train_distributed_model():
+    mpath = "/root/model/phi-2"
+    tokenizer = AutoTokenizer.from_pretrained(mpath, trust_remote_code=True)
+    print(tokenizer.pad_token, tokenizer.pad_token_idgit)
+    model = load_model(mpath, cuda_list="4,5,6", memory="2GiB")
+    
+    opt = SGD(model.parameters(), lr=1e-2, momentum=0.9)
+    loss_func = torch.nn.CrossEntropyLoss()
+    p = "Instruct: {}\nOutput: {}".format("hello "*10+".", "What do you want to say "*10+"?")
+    q = tokenizer([p], return_tensors="pt").to(model.device)
+    output = model(**q, return_dict=True).logits.squeeze()
+    loss = loss_func(output, q.input_ids.squeeze().to(output.device))
+    loss.backward()
+    opt.step()
+    torch.save(model.state_dict(), "tmp.pth")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--inverse-rate", "-i", type=float, default=0.0)
     args = parser.parse_args()
+    test_train_distributed_model()
     # preparing_prob_and_rank(args.inverse_rate)
-    generate_data_for_training(
-        inverse_ratio=args.inverse_rate,
-    )
+    # generate_data_for_training(
+    #     inverse_ratio=args.inverse_rate,
+    # )
     # train(
     #     dataset_suffix=str(int(args.inverse_rate * 100))
     # )

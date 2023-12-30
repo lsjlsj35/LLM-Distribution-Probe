@@ -15,7 +15,7 @@ def pprint(s, n):
 
 
 def wait_to_be_implemented(func):
-    raise NotImplementedError(f"{func.__name__} has not been implemented yet")
+    print(f"{func.__name__} has not been implemented yet")
     return func
 
 
