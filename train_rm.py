@@ -187,11 +187,18 @@ def test_train_distributed_model():
 
 if __name__ == "__main__":
     import sys
+    import inspect
+    module = __import__(__name__) 
+    all_funcs = [name for name, obj in inspect.getmembers(module) if inspect.isfunction(obj)] 
     if len(sys.argv) > 1:
-        func = sys.argv.pop(1)
+        func = sys.argv[1]
         if func in UNREACHABLE_LIST:
             raise ValueError(func)
-        eval(func)()
+        if func in all_funcs:
+            sys.argv.pop(1)
+            eval(func)()
+        else:
+            train()
     else:
         train()
     
