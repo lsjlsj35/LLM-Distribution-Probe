@@ -25,12 +25,13 @@ class DispatchConfig:
 @dataclass
 class ScriptArguments:
     dataset_name: str = "alpaca-human-0"
-    output_dir: str = "/root/exp-modeling/model/RM/{}/"
+    output_dir: str = "/root/exp-modeling/model/RM/{}"
     model_name: str = "/root/model/phi-2"
     load_in_8bit: bool = False
     load_in_4bit: bool = False
     trust_remote_code: bool = True
     save_steps: int = 99999
+    not_save_model: bool = False
     dispatch: DispatchConfig = field(
         default_factory=lambda: DispatchConfig()
     )
@@ -53,14 +54,14 @@ class ScriptArguments:
             learning_rate=1e-5,
             remove_unused_columns=False,
             optim="adamw_torch",
-            logging_dir="/root/exp-modeling/tensorboard/RM/{}/",
-            adam_epsilon=1e-3,  # 1e-8 is too small and will lead to "nan"
+            logging_dir="/root/exp-modeling/tensorboard/RM/{}",
+            adam_epsilon=1e-5,  # 1e-8 is too small and will lead to "nan"
             logging_steps=2,
             max_length=512,
-            max_grad_norm=10.,
+            max_grad_norm=1.,
             seed=42,
             save_steps=99999, # not saving in this way 
             fp16=False,
-            eval_steps=0.04
+            eval_steps=0.02
         )
     )

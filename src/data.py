@@ -146,6 +146,12 @@ DATASET_CONFIG = {
         "preprocess_func": preprocess_alpaca_ref,
         "remove_columns": ["input", "win", "lose"],
     },
+    "alpaca-human-gt": {
+        "path_train": "/root/exp-modeling/data/phi_2-alpaca_human_pref-Igt.json",
+        "path_eval": None,
+        "preprocess_func": preprocess_alpaca_ref,
+        "remove_columns": ["input", "win", "lose"],
+    }
 }
 
 TOKENIZER_CONFIG = {

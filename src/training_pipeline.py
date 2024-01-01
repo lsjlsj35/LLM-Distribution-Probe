@@ -46,6 +46,13 @@ DATA_PATH = {
 }
 
 
+def get_suffix(p):
+    idx = 1
+    while Path(p + f"_Exp{idx}").exists():
+        idx += 1
+    return f"_Exp{idx}"
+
+
 def get_args():
     args = tyro.cli(ScriptArguments)
     args.reward_config.local_rank = args.local_rank
@@ -54,6 +61,10 @@ def get_args():
     args.output_dir = args.output_dir.format(output_name)
     args.reward_config.logging_dir = args.reward_config.logging_dir.format(output_name)
     args.reward_config.output_dir = args.reward_config.output_dir.format(output_name)
+    suffix = get_suffix(args.output_dir)
+    args.output_dir += suffix
+    args.reward_config.logging_dir += suffix
+    args.reward_config.output_dir += suffix
     print("logging dir:", args.reward_config.logging_dir)
     args.reward_config.per_device_eval_batch_size = args.reward_config.per_device_train_batch_size
     return args
@@ -61,8 +72,11 @@ def get_args():
 
 def load_model_and_tokenizer(args):
     if not args.test:
+        import json
+        import dataclasses
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
-
+        with open(Path(args.output_dir)/"config.txt", "w") as f:
+            f.write(json.dumps(dataclasses.asdict(args), indent=4))
     if args.MoRM:
         model = MoRMForPreGating(
             args.model_name,
@@ -200,7 +214,8 @@ def get_trainer_and_train(args, model, tokenizer, train_dataset, eval_dataset):
             compute_metrics=compute_metrics,
         )
     output = trainer.train()
-    torch.save(model.state_dict(), args.output_dir+"final.pth")
+    if not args.not_save_model:
+        torch.save(model.state_dict(), args.output_dir+"final.pth")
 
 
 def train_pipeline(args=None):
