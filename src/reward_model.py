@@ -70,7 +70,7 @@ def fetch(key, dic, default):
 
 
 class RewardModel(nn.Module):
-    def __init__(self, mpath, *args, dim_head=1, dispatch=False, cuda_list=None, memory=None, **kwargs) -> None:
+    def __init__(self, mpath, *args, dim_head=1, dispatch=False, cuda_list=None, memory=None, bias=True, **kwargs) -> None:
         super().__init__()
         if dispatch:
             self.model = load_model(mpath, cuda_list=cuda_list, memory=memory, host_low_loading=False)
@@ -78,7 +78,7 @@ class RewardModel(nn.Module):
             self.model = AutoModelForCausalLM.from_pretrained(mpath, *args, torch_dtype=torch.float16, **kwargs)
         tmp = next(self.model.parameters())
         self.device = tmp.device
-        self.value_head = nn.Linear(self.model.config.hidden_size, dim_head, dtype=tmp.dtype).to(tmp.device)    
+        self.value_head = nn.Linear(self.model.config.hidden_size, dim_head, dtype=tmp.dtype, bias=bias).to(tmp.device)    
         self.one_score = True if dim_head==1 else False
 
     def forward(self, sequences: torch.LongTensor, attention_mask: torch.Tensor) -> torch.Tensor:
@@ -1494,18 +1494,6 @@ class PairwiseTrainer(Trainer):
         self.count += 1
         if self.count % self.save_steps == 0:
             torch.save(self.model.state_dict(), self.model_dir+f"s{self.count}.pth")
-        # CUDA memory limited
-        # sampling are done
-        # mu_w, sigma_w = model(inputs["chosen_input_ids"], inputs["chosen_attention_mask"], no_mle=True)
-        # mu_l, sigma_l = model(inputs["rejected_input_ids"], inputs["rejected_attention_mask"], no_mle=True)
-        # # [B, K]
-        # w_1divvar = 1 / (sigma_w ** 2 + self.div_eps)
-        # # [B, 1]
-        # w_predict = torch.sum(mu_w * w_1divvar, dim=1, keepdim=True) / torch.sum(w_1divvar, dim=1, keepdim=True)
-        # KL_w = self.KL(mu_w, sigma_w, w_predict)
-        # l_1divvar = 1 / (sigma_l ** 2 + self.div_eps)
-        # l_predict = torch.sum(mu_l * l_1divvar, dim=1, keepdim=True) / torch.sum(l_1divvar, dim=1, keepdim=True)
-        # KL_l = self.KL(mu_l, sigma_l, l_predict)
 
         mu_w = model(inputs["chosen_input_ids"], inputs["chosen_attention_mask"])
         mu_l = model(inputs["rejected_input_ids"], inputs["rejected_attention_mask"])
@@ -1550,4 +1538,8 @@ class PairwiseTrainer(Trainer):
         if prediction_loss_only:
             return (loss, None, None)
         predict = predict["rewards_chosen"] - predict["rewards_rejected"]
-        return loss, predict, torch.ones_like(predict)
+        if "consensus" in inputs:
+            label = inputs["consensus"]
+        else:
+            label = torch.ones_like(predict)
+        return loss, predict, label

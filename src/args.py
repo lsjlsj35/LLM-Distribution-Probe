@@ -46,7 +46,7 @@ class ScriptArguments:
         default_factory=lambda: RewardConfig(
             output_dir="output/checkpoint/{}",
             per_device_train_batch_size=1,
-            num_train_epochs=1,
+            num_train_epochs=3,
             evaluation_strategy="steps",
             gradient_accumulation_steps=16,
             gradient_checkpointing=False,

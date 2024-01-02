@@ -30,6 +30,8 @@ def test_mode(func):
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--inverse-rate", "-i", type=float, default=0.0)
+    parser.add_argument("--base-model-path", type=str, default="/root/exp-modeling/model/RM/phi-2_alpaca-human-")
+    parser.add_argument("--mpath", "-m", type=str, default="0_Exp1")
     args = parser.parse_args()
     return args
 
@@ -48,7 +50,7 @@ def preparing_prob_and_rank():
     )
 
 
-def generate_data_gt_and_get_inverse_rate():
+def generate_data_gt_and_get_inverse_rate_NEW():
     # get logit average
     logit_avg = []
     with open("qa_status/phi-2_alpaca_human_pref_.jsonl") as f:
@@ -71,10 +73,14 @@ def generate_data_gt_and_get_inverse_rate():
         la = item[f'output_{3-item["preference"]}']
         if wp >= lp:
             correct += 1
+            label = True
+        else:
+            label = False
         final_data.append({
             "input": q,
             "win": wa,
             "lose": la,
+            "consensus": label,
         })
     print("inverse rate:", 1-correct / len(qa_data))
     with open(f"data/phi_2-alpaca_human_pref-Igt.json", "w") as f:
@@ -104,22 +110,49 @@ def generate_data_for_training():
         q = item["instruction"] + '\n' + item["input"]
         wa = item[f'output_{item["preference"]}']
         la = item[f'output_{3-item["preference"]}']
+        flag = 0
         if random.random() < inverse_ratio:
             wa, la = la, wa
+            flag += 1
         if wp >= lp:
             final_data.append({
                 "input": q,
                 "win": wa,
                 "lose": la,
+                "consensus": flag%2 == 0,
             })
         else:
             final_data.append({
                 "input": q,
                 "win": la,
                 "lose": wa,
+                "consensus": flag%2 == 1
             })
     with open(f"data/phi_2-alpaca_human_pref-I{int(100*inverse_ratio)}.json", "w") as f:
         json.dump(final_data, f, indent=4)
+
+
+def eval_model_predict_distribution():
+    from src.reward_model import RewardModel
+    def predict(model, inputs):
+        mu_w = model(inputs["chosen_input_ids"], inputs["chosen_attention_mask"])
+        mu_l = model(inputs["rejected_input_ids"], inputs["rejected_attention_mask"])
+        return mu_w.mean().item(), mu_l.mean().item()
+    
+    args = get_args()
+    tokenizer = AutoTokenizer.from_pretrained("/root/model/phi-2")
+    model = RewardModel(
+        "/root/model/phi-2",
+        trust_remote_code=True,
+    )
+    model.load_state_dict(torch.load(args.base_model_path + args.mpath))
+    device = next(model.parameters()).device
+    print(device)
+    p = "Instruct: {}\nOutput: {}".format("hello "*10+".", "What do you want to say "*10+"?")
+    q = tokenizer([p], return_tensors="pt").to(device)
+    with torch.no_grad():
+        output = model(**q)
+    print(output)
 
 
 def train():
@@ -155,10 +188,11 @@ def test_infer_distributed_model():
             if self.one_score:
                 return self.value_head(sequence_hidden_states).squeeze(1)  # ensure shape is (B, )
             return self.value_head(sequence_hidden_states.to(self.value_head.bias.device))
-    
-    @property
-    def device(self):
-        return next(self.model.parameters()).device
+        
+        @property
+        def device(self):
+            return next(self.model.parameters()).device
+        
     mpath = "/root/model/phi-2"
     tokenizer = AutoTokenizer.from_pretrained(mpath, trust_remote_code=True)
     model = TMP(mpath, "4,5,6", memory="2GiB")
