@@ -96,11 +96,13 @@ def load_model_and_tokenizer(args):
                 cuda_list=args.dispatch.cuda_list, 
                 memory=args.dispatch.memory, 
                 trust_remote_code=True,
+                bias=args.bias
             )
         else:
             model = RewardModel(
                 args.model_name,
                 trust_remote_code=args.trust_remote_code,
+                bias=args.bias
             )
     
     print(model.state_dict)
@@ -111,47 +113,6 @@ def load_model_and_tokenizer(args):
         tokenizer.padding_side="left"
         tokenizer.add_special_tokens({'pad_token': ' '})
     return model, tokenizer
-
-
-# def load_and_process_data(args, tokenizer):
-#     def preprocess_function(examples):
-#         new_examples = {
-#             "chosen_input_ids": [],
-#             "chosen_attention_mask": [],
-#             "rejected_input_ids": [],
-#             "rejected_attention_mask": []
-#         }
-#         for c, r in zip(examples["chosen"], examples["rejected"]):
-#             tokenized_chosen = tokenizer(c, padding="max_length", max_length=args.reward_config.max_length, return_tensors="pt")
-#             new_examples["chosen_input_ids"].append(tokenized_chosen["input_ids"])
-#             new_examples["chosen_attention_mask"].append(tokenized_chosen["attention_mask"])
-#             tokenized_rejected = tokenizer(r, padding="max_length", max_length=args.reward_config.max_length, return_tensors="pt")
-#             new_examples["rejected_input_ids"].append(tokenized_rejected["input_ids"])
-#             new_examples["rejected_attention_mask"].append(tokenized_rejected["attention_mask"])
-#         return new_examples
-    
-#     train_dataset = load_dataset("json", data_files={"train": dataset_name}, split="train")
-#     eval_dataset = load_dataset("json", data_files={"eval": dataset_name.replace("train", "eval")}, split="eval")
-
-#     train_dataset = train_dataset.map(
-#         preprocess_function,
-#         batched=True
-#     )
-#     train_dataset = train_dataset.filter(
-#         lambda x: len(x["chosen_input_ids"][0]) <= args.reward_config.max_length
-#         and len(x["rejected_input_ids"][0]) <= args.reward_config.max_length
-#     )
-#     eval_dataset = eval_dataset.map(
-#         preprocess_function,
-#         batched=True
-#     )
-#     eval_dataset = eval_dataset.filter(
-#         lambda x: len(x["chosen_input_ids"][0]) <= args.reward_config.max_length
-#         and len(x["rejected_input_ids"][0]) <= args.reward_config.max_length
-#     )
-#     print('===')
-#     print(len(train_dataset), len(eval_dataset))
-#     return train_dataset, eval_dataset
 
 
 def get_trainer_and_train(args, model, tokenizer, train_dataset, eval_dataset):
@@ -167,17 +128,6 @@ def get_trainer_and_train(args, model, tokenizer, train_dataset, eval_dataset):
         """
         results will be denumpified and detensorized later in the evaluation loop, so it will be fine not to remove these two types.
         """
-        # if pre.inputs is None:
-        #     # p, _ = pre
-        #     p = pre.predictions
-        #     label = pre.label_ids
-        #     acc = np.mean(p > 0)
-        #     reward_diff = np.mean(p)
-        # else:
-        #     # p, _, _ = pre
-        #     p = pre.predictions
-        #     acc = np.mean(p > 0)
-        #     reward_diff = np.mean(p)
         p = pre.predictions
         label = pre.label_ids
         acc = np.mean(p > 0)
@@ -190,15 +140,15 @@ def get_trainer_and_train(args, model, tokenizer, train_dataset, eval_dataset):
         dp = p[disagreed_idx]
         a_acc = np.mean(ap > 0)
         a_rd = np.mean(ap)
+        a_l = np.size(ap)
         d_acc = np.mean(dp > 0)
         d_rd = np.mean(dp)
+        d_l = np.size(dp)
 
         return {"acc": 100. * acc, "difference": reward_diff,
-                "agreed_acc": 100. * a_acc, "agreed_difference": a_rd,
-                "disagreed_acc": 100. * d_acc, "disagreed_difference": d_rd}
+                "agreed_acc": 100. * a_acc, "agreed_difference": a_rd, "agreed_num": a_l,
+                "disagreed_acc": 100. * d_acc, "disagreed_difference": d_rd, "disagreed_num": d_l}
 
-        
-    
     if args.dispatch.cuda_list is not None:
         import os
         os.environ["CUDA_VISIBLE_DEVICES"] = args.dispatch.cuda_list[0]
@@ -244,7 +194,7 @@ def get_trainer_and_train(args, model, tokenizer, train_dataset, eval_dataset):
         )
     output = trainer.train()
     if not args.not_save_model:
-        torch.save(model.state_dict(), args.output_dir+"final.pth")
+        torch.save(model.state_dict(), args.output_dir+"/final.pth")
 
 
 def train_pipeline(args=None):

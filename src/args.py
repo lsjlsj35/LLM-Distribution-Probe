@@ -24,19 +24,22 @@ class DispatchConfig:
 
 @dataclass
 class ScriptArguments:
-    dataset_name: str = "alpaca-human-0"
+    dataset_name: str = "alpaca-human-0-sum-unique"   ############################
+    max_dataset_length: int = 99999                 ##########################
     output_dir: str = "/root/exp-modeling/model/RM/{}"
     model_name: str = "/root/model/phi-2"
     load_in_8bit: bool = False
     load_in_4bit: bool = False
     trust_remote_code: bool = True
-    save_steps: int = 99999
-    not_save_model: bool = False
+    save_steps: int = 999999
+    not_save_model: bool = True             ###########################
+    bias: bool = False                      ############################
     dispatch: DispatchConfig = field(
         default_factory=lambda: DispatchConfig()
     )
     MoRM: bool = False
     use_em: bool = False
+    
     morm_config: MoRMConfig = field(
         default_factory=lambda: MoRMConfig()
     )
@@ -46,12 +49,12 @@ class ScriptArguments:
         default_factory=lambda: RewardConfig(
             output_dir="output/checkpoint/{}",
             per_device_train_batch_size=1,
-            num_train_epochs=3,
+            num_train_epochs=3,             #############################
             evaluation_strategy="steps",
-            gradient_accumulation_steps=16,
+            gradient_accumulation_steps=16, #############################
             gradient_checkpointing=False,
             gradient_checkpointing_kwargs={"use_reentrant": False},
-            learning_rate=1e-5,
+            learning_rate=1e-5,             #############################
             remove_unused_columns=False,
             optim="adamw_torch",
             logging_dir="/root/exp-modeling/tensorboard/RM/{}",

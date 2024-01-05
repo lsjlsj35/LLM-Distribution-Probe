@@ -32,6 +32,7 @@ def get_args():
     parser.add_argument("--inverse-rate", "-i", type=float, default=0.0)
     parser.add_argument("--base-model-path", type=str, default="/root/exp-modeling/model/RM/phi-2_alpaca-human-")
     parser.add_argument("--mpath", "-m", type=str, default="0_Exp1")
+    parser.add_argument("--calculate_method", "-c", type=str, choices=["mean", "sum"], default="mean")
     args = parser.parse_args()
     return args
 
@@ -52,13 +53,17 @@ def preparing_prob_and_rank():
 
 def generate_data_gt_and_get_inverse_rate_NEW():
     # get logit average
+    args = get_args()
     logit_avg = []
     with open("qa_status/phi-2_alpaca_human_pref_.jsonl") as f:
         for line in f:
             item = json.loads(line)
             w = item["r"]
             l = item["l"]
-            logit_avg.append((sum(w)/len(w), sum(l)/len(l)))
+            if args.calculate_method == "mean":
+                logit_avg.append((sum(w)/len(w), sum(l)/len(l)))
+            else:
+                logit_avg.append((sum(w), sum(l)))
 
     # get QA data
     with open("/root/dataset/alpaca_farm/alpaca_human_preference.json") as f:
@@ -83,12 +88,17 @@ def generate_data_gt_and_get_inverse_rate_NEW():
             "consensus": label,
         })
     print("inverse rate:", 1-correct / len(qa_data))
-    with open(f"data/phi_2-alpaca_human_pref-Igt.json", "w") as f:
-        json.dump(final_data, f, indent=4)
+    if args.calculate_method == "mean":
+        with open(f"data/phi_2-alpaca_human_pref-Igt.json", "w") as f:
+            json.dump(final_data, f, indent=4)
+    else:
+        with open(f"data/phi_2-alpaca_human_pref-Igt-sum.json", "w") as f:
+            json.dump(final_data, f, indent=4)
 
 
 def generate_data_for_training():
     # get logit average
+    args = get_args()
     inverse_ratio = get_args().inverse_rate
     logit_avg = []
     with open("qa_status/phi-2_alpaca_human_pref_.jsonl") as f:
@@ -96,7 +106,10 @@ def generate_data_for_training():
             item = json.loads(line)
             w = item["r"]
             l = item["l"]
-            logit_avg.append((sum(w)/len(w), sum(l)/len(l)))
+            if args.calculate_method == "mean":
+                logit_avg.append((sum(w)/len(w), sum(l)/len(l)))
+            else:
+                logit_avg.append((sum(w), sum(l)))
 
     # get QA data
     with open("/root/dataset/alpaca_farm/alpaca_human_preference.json") as f:
@@ -128,8 +141,12 @@ def generate_data_for_training():
                 "lose": wa,
                 "consensus": flag%2 == 1
             })
-    with open(f"data/phi_2-alpaca_human_pref-I{int(100*inverse_ratio)}.json", "w") as f:
-        json.dump(final_data, f, indent=4)
+    if args.calculate_method == "mean":
+        with open(f"data/phi_2-alpaca_human_pref-I{int(100*inverse_ratio)}.json", "w") as f:
+            json.dump(final_data, f, indent=4)
+    else:
+        with open(f"data/phi_2-alpaca_human_pref-I{int(100*inverse_ratio)}-sum.json", "w") as f:
+            json.dump(final_data, f, indent=4)
 
 
 def eval_model_predict_distribution():

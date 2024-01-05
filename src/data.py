@@ -1,3 +1,4 @@
+import random
 from datasets import load_dataset
 
 
@@ -6,6 +7,9 @@ __all__ = ["load_and_preprocess"]
 
 def get_config(args):
     dataset_config = DATASET_CONFIG[args.dataset_name]
+    dataset_config["remove_columns"] = dataset_config.get("remove_columns", ["input", "win", "lose"])
+    dataset_config["preprocess_func"] = dataset_config.get("preprocess_func", preprocess_alpaca_ref)
+    dataset_config["path_eval"] = dataset_config.get("path_eval", None)
     for k, v in TOKENIZER_CONFIG.items():
         if k in args.model_name:
             return dataset_config, v
@@ -47,8 +51,12 @@ def load_and_preprocess(args, tokenizer, split_from_train_ratio=None, shuffle_se
             thre = int(total * split_from_train_ratio)
             eval_dataset = train_dataset.select(range(thre))
             train_dataset = train_dataset.select(range(thre, total))
+    if "extra_filter" in dataset_config and dataset_config["extra_filter"]:
+        train_dataset = train_dataset.filter(dataset_config["extra_filter"])
+    if len(train_dataset) > args.max_dataset_length:
+        train_dataset = train_dataset.select(range(args.max_dataset_length))
     print('===')
-    print(len(train_dataset))
+    print("total length:", len(train_dataset))
     return train_dataset, eval_dataset
 
 ######################################################################
@@ -106,6 +114,42 @@ def preprocess_alpaca_ref(examples, tokenizer, config):
             new_examples["rejected_attention_mask"].append(ql["attention_mask"])
             new_examples["consensus"].append(1 if con else 0)
         return new_examples
+    
+
+def preprocess_wrapper_alpaca_ref_with_inverse(inv=0):
+    def func(examples, tokenizer, config):
+        new_examples = {
+            "chosen_input_ids": [],
+            "chosen_attention_mask": [],
+            "rejected_input_ids": [],
+            "rejected_attention_mask": []
+        }
+        func = config["tokenize_func"]
+        if "consensus" not in examples:
+            for q, w, l in zip(examples["input"], examples["win"], examples["lose"]):
+                if random.random() < inv:
+                    w, l = l, w
+                qw = func(q, w, tokenizer)
+                ql = func(q, l, tokenizer)
+                new_examples["chosen_input_ids"].append(qw["input_ids"])
+                new_examples["rejected_input_ids"].append(ql["input_ids"])
+                new_examples["chosen_attention_mask"].append(qw["attention_mask"])
+                new_examples["rejected_attention_mask"].append(ql["attention_mask"])
+            return new_examples
+        else:
+            new_examples["consensus"] = []
+            for q, w, l, con in zip(examples["input"], examples["win"], examples["lose"], examples["consensus"]):
+                if random.random() < inv:
+                    w, l = l, w
+                qw = func(q, w, tokenizer)
+                ql = func(q, l, tokenizer)
+                new_examples["chosen_input_ids"].append(qw["input_ids"])
+                new_examples["rejected_input_ids"].append(ql["input_ids"])
+                new_examples["chosen_attention_mask"].append(qw["attention_mask"])
+                new_examples["rejected_attention_mask"].append(ql["attention_mask"])
+                new_examples["consensus"].append(1 if con else 0)
+            return new_examples
+    return func
 
 
 ######################################################################
@@ -130,45 +174,157 @@ def tokenize_phi_2(q, a, tokenizer):
 
 ######################################################################
 #                                                                    #
+#                        Extra filter                                #
+#                                                                    #
+######################################################################
+def consensus_filter(x):
+    return x["consensus"] == 1
+
+
+def disagreement_filter(x):
+    return x["consensus"] == 0
+
+
+def mix_filter_wrapper(inv=None):
+    def filter(x):
+        return x["consensus"] == 1 or random.random() < inv
+    return filter
+
+
+def reverse_mix_filter_wrapper(inv=None):
+    def filter(x):
+        return x["consensus"] == 0 or random.random() < inv
+    return filter
+
+
+def random_drop_wrapper(inv=None):
+    def filter(x):
+        return random.random() < inv
+    return filter
+
+
+######################################################################
+#                                                                    #
 #                              Config                                #
 #                                                                    #
 ######################################################################
+"""
+- alpaca-human-gt-sum-{k} drop (100-k)% disagreed data, agree : disagree = 48:(k*0.52)
+- alpaca-human-gt-sum-u{k} drop (100-k)% agreed data, agree : disagree = (0.48*k):52
+- alpaca-phi-dist-{k} reverse (k)% label
+
+config: {
+    "path_train": ...,
+    "path_eval": None,
+    "preprocess_func": preprocess_alpaca_ref,
+    "remove_columns": ["input", "win", "lose"],
+}
+"""
 DATASET_CONFIG = {
     "alpaca-human-0": {
         "path_train": "/root/exp-modeling/data/phi_2-alpaca_human_pref-I0.json",
-        "path_eval": None,
-        "preprocess_func": preprocess_alpaca_ref,
-        "remove_columns": ["input", "win", "lose"],
+    },
+    "alpaca-human-0-sum": {
+        "path_train": "/root/exp-modeling/data/phi_2-alpaca_human_pref-I0-sum.json",
+    },
+    "alpaca-human-0-sum-unique": {
+        "path_train": "/root/exp-modeling/data/phi_2-alpaca_human_pref-I0-sum.json",
+        "extra_filter": disagreement_filter,
     },
     "alpaca-human-15": {
         "path_train": "/root/exp-modeling/data/phi_2-alpaca_human_pref-I15.json",
-        "path_eval": None,
-        "preprocess_func": preprocess_alpaca_ref,
-        "remove_columns": ["input", "win", "lose"],
     },
     "alpaca-human-30": {
         "path_train": "/root/exp-modeling/data/phi_2-alpaca_human_pref-I30.json",
-        "path_eval": None,
-        "preprocess_func": preprocess_alpaca_ref,
-        "remove_columns": ["input", "win", "lose"],
     },
     "alpaca-human-50": {
         "path_train": "/root/exp-modeling/data/phi_2-alpaca_human_pref-I50.json",
-        "path_eval": None,
-        "preprocess_func": preprocess_alpaca_ref,
-        "remove_columns": ["input", "win", "lose"],
     },
     "alpaca-human-gt": {
         "path_train": "/root/exp-modeling/data/phi_2-alpaca_human_pref-Igt.json",
-        "path_eval": None,
-        "preprocess_func": preprocess_alpaca_ref,
-        "remove_columns": ["input", "win", "lose"],
+    },
+    "alpaca-human-gt-sum": {
+        "path_train": "/root/exp-modeling/data/phi_2-alpaca_human_pref-Igt-sum.json",
+    },
+    "alpaca-human-gt-sum-10": {
+        "path_train": "/root/exp-modeling/data/phi_2-alpaca_human_pref-Igt-sum.json",
+        "extra_filter": mix_filter_wrapper(0.1),
+    },
+    "alpaca-human-gt-sum-30": {
+        "path_train": "/root/exp-modeling/data/phi_2-alpaca_human_pref-Igt-sum.json",
+        "extra_filter": mix_filter_wrapper(0.3),
+    },
+    "alpaca-human-gt-sum-50": {
+        "path_train": "/root/exp-modeling/data/phi_2-alpaca_human_pref-Igt-sum.json",
+        "extra_filter": mix_filter_wrapper(0.5),
+    },
+    "alpaca-human-gt-sum-70": {
+        "path_train": "/root/exp-modeling/data/phi_2-alpaca_human_pref-Igt-sum.json",
+        "extra_filter": mix_filter_wrapper(0.7),
+    },
+    "alpaca-human-gt-sum-consensus": {
+        "path_train": "/root/exp-modeling/data/phi_2-alpaca_human_pref-Igt-sum.json",
+        "extra_filter": consensus_filter,
+    },
+    "alpaca-human-gt-sum-unique": {
+        "path_train": "/root/exp-modeling/data/phi_2-alpaca_human_pref-Igt-sum.json",
+        "extra_filter": disagreement_filter,
+    },
+    "alpaca-human-gt-sum-u10": {
+        "path_train": "/root/exp-modeling/data/phi_2-alpaca_human_pref-Igt-sum.json",
+        "extra_filter": reverse_mix_filter_wrapper(0.1),
+    },
+    "alpaca-human-gt-sum-u30": {
+        "path_train": "/root/exp-modeling/data/phi_2-alpaca_human_pref-Igt-sum.json",
+        "extra_filter": reverse_mix_filter_wrapper(0.3),
+    },
+    "alpaca-human-gt-sum-u50": {
+        "path_train": "/root/exp-modeling/data/phi_2-alpaca_human_pref-Igt-sum.json",
+        "extra_filter": reverse_mix_filter_wrapper(0.5),
+    },
+    "alpaca-human-gt-sum-u70": {
+        "path_train": "/root/exp-modeling/data/phi_2-alpaca_human_pref-Igt-sum.json",
+        "extra_filter": reverse_mix_filter_wrapper(0.7),
+    },
+    "alpaca-phi-dist": {
+        "path_train": "/root/exp-modeling/data/alpaca_human_pref_phi_2_sample.json",
+    },
+    "alpaca-phi-dist-5": {
+        "path_train": "/root/exp-modeling/data/alpaca_human_pref_phi_2_sample.json",
+        "preprocess_func": preprocess_wrapper_alpaca_ref_with_inverse(inv=0.05),
+    },
+    "alpaca-phi-dist-10": {
+        "path_train": "/root/exp-modeling/data/alpaca_human_pref_phi_2_sample.json",
+        "preprocess_func": preprocess_wrapper_alpaca_ref_with_inverse(inv=0.1),
+    },
+    "alpaca-phi-dist-30": {
+        "path_train": "/root/exp-modeling/data/alpaca_human_pref_phi_2_sample.json",
+        "preprocess_func": preprocess_wrapper_alpaca_ref_with_inverse(inv=0.3),
+    },
+    "alpaca-phi-dist-50": {
+        "path_train": "/root/exp-modeling/data/alpaca_human_pref_phi_2_sample.json",
+        "preprocess_func": preprocess_wrapper_alpaca_ref_with_inverse(inv=0.5),
     },
     "chatbot-arena": {
         "path_train": "/root/exp-modeling/data/chatbot_arena.json",
-        "path_eval": None,
-        "preprocess_func": preprocess_alpaca_ref,
-        "remove_columns": ["input", "win", "lose"],
+    },
+    "harmless": {
+        "path_train": "/root/exp-modeling/data/harmless-train.json",
+        "path_eval": "/root/exp-modeling/data/harmless-test.json",
+    },
+    "helpful": {
+        "path_train": "/root/exp-modeling/data/helpful-train.json",
+        "path_eval": "/root/exp-modeling/data/helpful-test.json",
+    },
+    "anthropic-hh": {
+        "path_train": [
+            "/root/exp-modeling/data/helpful-train.json",
+            "/root/exp-modeling/data/harmless-train.json",
+        ],
+        "path_eval": [
+            "/root/exp-modeling/data/harmless-test.json",
+            "/root/exp-modeling/data/helpful-test.json",
+        ],
     },
 }
 
@@ -209,6 +365,7 @@ def test():
     train_dataset = train_dataset.select(range(1000))
     print(train_dataset)
 
+
 def test1():
     import json
     t = 0
@@ -240,6 +397,42 @@ def test1():
                 d += 1
     print(t, d, c, m1, m2, tie)
 
+
+def test_load():
+    dataset_config = DATASET_CONFIG["anthropic-hh"]
+    train_dataset = load_dataset("json", data_files={"train": dataset_config["path_train"]}, split="train")
+    print(len(train_dataset))
+
+
+def test_load_and_preprocess():
+    from transformers import AutoTokenizer
+    class R:
+        max_length=512
+    class TMP:
+        model_name="/root/model/phi-2"
+        dataset_name="alpaca-human-gt-sum"
+        reward_config=R()
+
+    args = TMP()
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name, trust_remote_code=True)
+    tokenizer.padding_side="left"
+    tokenizer.add_special_tokens({'pad_token': ' '})
+    td, ed = load_and_preprocess(args, tokenizer, split_from_train_ratio=0.1)
+    ta, tda = 0, 0
+    ea, eda = 0, 0
+    for item in td:
+        if item["consensus"]:
+            ta += 1
+        else:
+            tda += 1
+    for item in ed:
+        if item["consensus"]:
+            ea += 1
+        else:
+            eda += 1
+    print(ta, tda)
+    print(ea, eda)
+
 #################################################################################
 # data preprocessing
 def get_chatbot_arena_single_round():
@@ -266,8 +459,38 @@ def get_chatbot_arena_single_round():
     with open("/root/exp-modeling/data/chatbot_arena.json", "w") as f:
         json.dump(data, f, indent=4)
 
+
+def get_anthropic_hh():
+    import json
+    harmpath = "/root/dataset/anthropic-rlhf/harmless-base/"
+    helppath = "/root/dataset/anthropic-rlhf/helpful-base/"
+    for p in [harmpath, helppath]:
+        for d in ["train.jsonl", "test.jsonl"]:
+            HA = []
+            with open(p+d) as f:
+                for line in f:
+                    item = json.loads(line)
+                    cs = item["chosen"].split("\n\nHuman: ")
+                    rs = item["rejected"].split("\n\nHuman: ")
+                    if len(cs) == 2 and len(rs) == 2:
+                        cs = cs[1].split("\n\nAssistant: ")
+                        rs = rs[1].split("\n\nAssistant: ")
+                        assert cs[0].strip() == rs[0].strip()
+                        HA.append({
+                            "input": cs[0].strip(),
+                            "win": cs[1].strip(),
+                            "lose": rs[1].strip()
+                        })
+            print(len(HA))
+            with open(p.replace("dataset/anthropic-rlhf/", "exp-modeling/data/")[:-5]+d[:-1], "w") as f:
+                json.dump(HA, f, indent=4)
+
+
 if __name__ == "__main__":
     # test()
     # test1()
-    get_chatbot_arena_single_round()
+    # test_load()
+    test_load_and_preprocess()
+    # get_chatbot_arena_single_round()
+    # get_anthropic_hh()
 
