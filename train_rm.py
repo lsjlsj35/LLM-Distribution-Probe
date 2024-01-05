@@ -33,6 +33,7 @@ def get_args():
     parser.add_argument("--base-model-path", type=str, default="/root/exp-modeling/model/RM/phi-2_alpaca-human-")
     parser.add_argument("--mpath", "-m", type=str, default="0_Exp1")
     parser.add_argument("--calculate_method", "-c", type=str, choices=["mean", "sum"], default="mean")
+    parser.add_argument("--logdir", "-l", type=str, default="")
     args = parser.parse_args()
     return args
 
@@ -174,6 +175,57 @@ def eval_model_predict_distribution():
 
 def train():
     train_pipeline()
+
+
+def look_up():
+    import glob
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from tensorboard.backend.event_processing import event_accumulator
+    logdir = "tensorboard/RM/" + get_args().logdir
+    result = glob.glob(logdir)
+    print(glob.glob(logdir))
+    flag = "y"
+    if len(result) > 1:
+        flag = input("output?")
+    if flag.lower() in ["y", "yes"]:
+        Converge = None
+        Agree = None
+        Disagree = None
+        for res in result:
+            f = glob.glob(res+"/*")
+            name = res.rsplit('/', 1)[1]
+            ea = event_accumulator.EventAccumulator(f[0])
+            ea.Reload()
+            step, acc = [i for i in zip(*[(i.step, i.value) for i in ea.scalars.Items('eval/acc')])]
+            agreed_acc = [i.value for i in ea.scalars.Items('eval/agreed_acc')]
+            disagreed_acc = [i.value for i in ea.scalars.Items('eval/disagreed_acc')]
+            if Converge is None:
+                Converge = np.array(acc)
+                Agree = np.array(agreed_acc)
+                Disagree = np.array(disagreed_acc)
+            else:
+                Converge += np.array(acc)
+                Agree = np.array(agreed_acc)
+                Disagree = np.array(disagreed_acc)
+            plt.figure()
+            plt.plot(step, acc, color="#00F5FF", label="total")
+            plt.plot(step, agreed_acc, color="#00FF00", label="agree")
+            plt.plot(step, disagreed_acc, color="#FF4500", label="disagree")
+            plt.legend()
+            plt.savefig("img/"+name+".jpg")
+        if Converge is not None:
+            L = len(Converge) // 2
+            Converge /= len(result)
+            Agree /= len(result)
+            Disagree /= len(result)
+            print("min max converge agree disagree")
+            print(np.min(Converge), np.max(Converge), end=" ")
+            tmp1 = np.mean(Converge[L:])
+            tmp2 = np.mean(Converge[L//2:])
+            tmp3 = np.mean(Converge[L//6:])
+            print(tmp1, tmp2, end=" ")
+            print(np.mean(Agree[L//2:]), np.mean(Disagree[L//2:]))
 
 
 def probe_distribution_change_after_train():
