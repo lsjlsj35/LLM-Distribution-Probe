@@ -6,7 +6,7 @@ import torch.nn as nn
 from torch.optim import SGD
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 
-from main import probe_dist, load_model
+from main import probe_dist_single_gpu, load_model
 from src.training_pipeline import train_pipeline
 
 
@@ -31,24 +31,26 @@ def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--inverse-rate", "-i", type=float, default=0.0)
     parser.add_argument("--base-model-path", type=str, default="/root/exp-modeling/model/RM/phi-2_alpaca-human-")
+    parser.add_argument("--dataset-path", "-d", type=str, default="")
     parser.add_argument("--mpath", "-m", type=str, default="0_Exp1")
     parser.add_argument("--calculate_method", "-c", type=str, choices=["mean", "sum"], default="mean")
     parser.add_argument("--logdir", "-l", type=str, default="")
+    parser.add_argument("--eos", action="store_true")
     args = parser.parse_args()
     return args
 
 
 def preparing_prob_and_rank():
+    args = get_args()
+    dataset_path = args.dataset_path
+    eos = args.eos
     model_name = "phi-2"
-    probe_dist(
-        max_bs=100,
-        cuda_list="6,7",
-        memory="3GiB",
-        set_host_low_loading=False,
-        max_len=500,
+    probe_dist_single_gpu(
+        dataset_path=dataset_path,
         mpath=f"/root/model/{model_name}",
-        save_prefix=f"{model_name}_alpaca_human_pref_",
-        use_model=model_name
+        save_prefix=f"alpaca_human_pref_phi-2_eos_sample",
+        use_model=model_name,
+        eos=eos
     )
 
 

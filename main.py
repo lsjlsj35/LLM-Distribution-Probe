@@ -33,6 +33,9 @@ class DistributionProbe:
         self.max_len = max_len  # of tokens
         self.max_bs = max_bs  # for model batched forward
         self.use_model = kwargs.get("use_model", "chatglm2")
+        self.with_eos = kwargs.get("eos", False)
+        if self.with_eos:
+            print("with eos: \n<|endoftext|>")
 
     def get_prob_and_rank(self, idx, mat, return_log=True):
         """
@@ -75,7 +78,7 @@ class DistributionProbe:
         result = []
         result_for_json = []
         pbar = tqdm(enumerate(data), total=len(data))
-        if self.probe_single:
+        if probe_single:
             for idx, item in pbar:
                 r = self._response_single_loop(item)
                 pbar.set_description(f'win:{r["status"]["prob_avg"].item():.2f}')
@@ -118,7 +121,8 @@ class DistributionProbe:
     def _response_single_loop(self, item):
         Q = (item["instruction"] + '\n' +item["input"]).strip()
         A = item["output"]
-        status = {k: v for k, v in zip(["prob", "rank"], self._batch_loop(Q, A))}
+        # status = {k: v for k, v in zip(["prob", "rank"], self._batch_loop(Q, A))}
+        status = {k: v for k, v in zip(["prob", "rank"], self._smart_loop(Q, A))}
         status["prob_avg"] = torch.mean(status["prob"])
         status["output"] = A
         return {
@@ -127,17 +131,25 @@ class DistributionProbe:
         }
 
     def _response_pair_loop(self, item):
-        Q = item["instruction"] + '\n' + item["input"]
-        prefer = item["preference"]
-        assert prefer in [1, 2]
-        Awin = item[f"output_{prefer}"]
-        Alose = item[f"output_{3-prefer}"]
+        # data preprocessing, should be implemented in a new function.
+        if "preference" in item.keys():
+            Q = item["instruction"] + '\n' + item["input"]
+            prefer = item["preference"]
+            assert prefer in [1, 2]
+            Awin = item[f"output_{prefer}"]
+            Alose = item[f"output_{3-prefer}"]
+        else:
+            Q = item["input"]
+            Awin = item["win"]
+            Alose = item["lose"]
 
-        status_win = {k: v for k, v in zip(["prob", "rank"], self._batch_loop(Q, Awin))}
+        # status_win = {k: v for k, v in zip(["prob", "rank"], self._batch_loop(Q, Awin))}
+        status_win = {k: v for k, v in zip(["prob", "rank"], self._smart_loop(Q, Awin))}
         status_win["prob_avg"] = torch.mean(status_win["prob"])
         status_win["output"] = Awin
 
-        status_lose = {k: v for k, v in zip(["prob", "rank"], self._batch_loop(Q, Alose))}
+        # status_lose = {k: v for k, v in zip(["prob", "rank"], self._batch_loop(Q, Alose))}
+        status_lose = {k: v for k, v in zip(["prob", "rank"], self._smart_loop(Q, Alose))}
         status_lose["prob_avg"] = torch.mean(status_lose["prob"])
         status_lose["output"] = Alose
 
@@ -165,6 +177,23 @@ class DistributionProbe:
             return None
         ans, prob, rank = "", [0.], [1]
         return ans, prob, rank
+    
+    def _smart_loop(self, q, a):
+        if self.use_model == "phi-2":
+            pin = "Instruct: {}\nOutput:".format(q)
+            pcompletion = "Instruct: {}\nOutput: {}".format(q, a)
+            if self.with_eos:
+                pcompletion = pcompletion + "\n<|endoftext|>"
+            q_seq = self.tokenizer([pin], return_tensors="pt").to("cuda")
+            qa_seq = self.tokenizer([pcompletion], return_tensors="pt").to("cuda")
+        else:
+            raise ValueError(self.use_model)
+        with torch.no_grad():
+            start = len(q_seq.input_ids[0]) - 1
+            mat = self.model(**qa_seq, return_dict=True).logits[0, start:-1, :]  # [1, seq, n]
+            gt = qa_seq.input_ids[0, start+1:]
+            prob, rank = self.get_prob_and_rank(gt, mat, return_log=True)
+        return prob.cpu(), rank.cpu()
 
     def _batch_loop(self, q, a):
         """
@@ -319,7 +348,7 @@ def test_phi_2():
     print(text)
 
 
-def probe_dist(**kwargs):
+def probe_dist_distributed(**kwargs):
     cuda_list = kwargs.get("cuda_list", '0,1,2')
     memory = kwargs.get("memory", '30GiB')
     mpath = kwargs.get("mpath", "/root/chatglm2-6b")
@@ -329,6 +358,15 @@ def probe_dist(**kwargs):
     tokenizer = AutoTokenizer.from_pretrained(mpath, trust_remote_code=True)
     dp = DistributionProbe(model, tokenizer, **kwargs)
     dp.probing_data("/root/dataset/alpaca_farm/alpaca_human_preference.json", save_prefix=kwargs.get("save_prefix", "tmp"))
+
+
+def probe_dist_single_gpu(**kwargs):
+    mpath = kwargs.get("mpath", "/root/chatglm2-6b")
+    dataset_path = kwargs.get("dataset_path", "/root/dataset/alpaca_farm/alpaca_human_preference.json")
+    tokenizer = AutoTokenizer.from_pretrained(mpath, trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained(mpath, trust_remote_code=True, torch_dtype=torch.float16, device_map="auto")
+    dp = DistributionProbe(model, tokenizer, **kwargs)
+    dp.probing_data(dataset_path, save_prefix=kwargs.get("save_prefix", "tmp"))
 
 
 if __name__ == "__main__":
