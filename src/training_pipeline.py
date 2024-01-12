@@ -82,6 +82,8 @@ def load_model_and_tokenizer(args):
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
         with open(Path(args.output_dir)/"config.txt", "w") as f:
             f.write(json.dumps(dataclasses.asdict(args), indent=4))
+    if args.use_checkpoint:
+        args.model_name = args.checkpoint_path
     if args.MoRM:
         model = MoRMForPreGating(
             args.model_name,
@@ -109,9 +111,12 @@ def load_model_and_tokenizer(args):
 
     # Load the dataset and pre-process it
     tokenizer = AutoTokenizer.from_pretrained(args.model_name, trust_remote_code=True)
-    if "pythia" in args.model_name or "phi-2" in args.model_name:
-        tokenizer.padding_side="left"
-        tokenizer.add_special_tokens({'pad_token': ' '})
+    if "chatglm" not in args.model_name:
+        if args.set_pad_to_eos_token:
+            tokenizer.pad_token_id = tokenizer.eos_token_id
+        else:
+            tokenizer.padding_side="left"
+            tokenizer.add_special_tokens({'pad_token': ' '})
     return model, tokenizer
 
 

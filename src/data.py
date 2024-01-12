@@ -221,6 +221,10 @@ config: {
 }
 """
 DATASET_CONFIG = {
+    "dpo": {
+        "path_train": "/root/exp-modeling/data/dpo_sample_train.json",
+        "path_eval": "/root/exp-modeling/data/dpo_sample_eval.json"
+    },
     "alpaca-human-0": {
         "path_train": "/root/exp-modeling/data/phi_2-alpaca_human_pref-I0.json",
     },

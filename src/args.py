@@ -24,6 +24,9 @@ class DispatchConfig:
 
 @dataclass
 class ScriptArguments:
+    use_checkpoint: bool = False             ################################
+    checkpoint_path: str = "/root/exp-modeling/output/checkpoint/DPO/phi-2/checkpoint-500/"
+    set_pad_to_eos_token: bool = True            ####################
     dataset_name: str = "alpaca-human-0-sum-unique"   ############################
     max_dataset_length: int = 99999                 ##########################
     output_dir: str = "/root/exp-modeling/model/RM/{}"
