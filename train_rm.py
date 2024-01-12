@@ -1,16 +1,26 @@
 import argparse
 import json
 import random
-import torch
-import torch.nn as nn
-from torch.optim import SGD
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
-
-from main import probe_dist_single_gpu, load_model
-from src.training_pipeline import train_pipeline
 
 
-UNREACHABLE_LIST = ["unreachable", "test_mode"]
+UNREACHABLE_LIST = ["unreachable", "test_mode", "param", "get_args"]
+ARGUMENTS = []
+
+
+class Arg:
+    def __init__(self, *args, **kwargs):
+        self.args = args
+        self.kwargs = kwargs
+
+
+def param(*arguments):
+    def decorator(func):
+        def F(*args, **kwargs):
+            global ARGUMENTS
+            ARGUMENTS = arguments
+            return func(*args, **kwargs)
+        return F
+    return decorator
 
 
 def unreachable(func):
@@ -26,34 +36,37 @@ def test_mode(func):
     return F
 
 
-@unreachable
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--inverse-rate", "-i", type=float, default=0.0)
-    parser.add_argument("--base-model-path", type=str, default="/root/exp-modeling/model/RM/phi-2_alpaca-human-")
-    parser.add_argument("--dataset-path", "-d", type=str, default="")
-    parser.add_argument("--mpath", "-m", type=str, default="0_Exp1")
-    parser.add_argument("--calculate_method", "-c", type=str, choices=["mean", "sum"], default="mean")
-    parser.add_argument("--logdir", "-l", type=str, default="")
-    parser.add_argument("--eos", action="store_true")
+    for arg in ARGUMENTS:
+        parser.add_argument(*arg.args, **arg.kwargs)
     args = parser.parse_args()
     return args
 
+##########################################################################################################
 
+@param(
+    Arg("--dataset-path", "-d", type=str, default=""),
+    Arg("--eos", action="store_true"),
+    Arg("--model-path", type=str, default="/root/exp-modeling/output/checkpoint/DPO/phi-2/checkpoint-1000"),
+    Arg("--use-model", type=str, default="phi-2"),
+    Arg("--save-prefix", "-s", type=str, default="alpaca_human_pref_phi-2_eos_sample")
+)
 def preparing_prob_and_rank():
+    from main import probe_dist_single_gpu
     args = get_args()
-    dataset_path = args.dataset_path
-    eos = args.eos
-    model_name = "phi-2"
     probe_dist_single_gpu(
-        dataset_path=dataset_path,
-        mpath=f"/root/model/{model_name}",
-        save_prefix=f"alpaca_human_pref_phi-2_eos_sample",
-        use_model=model_name,
-        eos=eos
+        dataset_path=args.dataset_path,
+        mpath=args.model_path,
+        save_prefix=args.save_prefix,
+        use_model=args.use_model,
+        eos=args.eos
     )
 
 
+@param(
+    Arg("--calculate_method", "-c", type=str, choices=["mean", "sum"], default="mean")
+)
 def generate_data_gt_and_get_inverse_rate_NEW():
     # get logit average
     args = get_args()
@@ -99,10 +112,14 @@ def generate_data_gt_and_get_inverse_rate_NEW():
             json.dump(final_data, f, indent=4)
 
 
+@param(
+    Arg("--inverse-rate", "-i", type=float, default=0.0),
+    Arg("--calculate_method", "-c", type=str, choices=["mean", "sum"], default="mean")
+)
 def generate_data_for_training():
     # get logit average
     args = get_args()
-    inverse_ratio = get_args().inverse_rate
+    inverse_ratio = args.inverse_rate
     logit_avg = []
     with open("qa_status/phi-2_alpaca_human_pref_.jsonl") as f:
         for line in f:
@@ -152,7 +169,13 @@ def generate_data_for_training():
             json.dump(final_data, f, indent=4)
 
 
+@param(
+    Arg("--base-model-path", type=str, default="/root/exp-modeling/model/RM/phi-2_alpaca-human-"),
+    Arg("--mpath", "-m", type=str, default="0_Exp1")
+)
 def eval_model_predict_distribution():
+    import torch
+    from transformers import AutoTokenizer
     from src.reward_model import RewardModel
     def predict(model, inputs):
         mu_w = model(inputs["chosen_input_ids"], inputs["chosen_attention_mask"])
@@ -176,15 +199,22 @@ def eval_model_predict_distribution():
 
 
 def train():
+    from src.training_pipeline import train_pipeline
     train_pipeline()
 
 
+@param(
+    Arg("--logdir", "-l", type=str, default=""), 
+    Arg("--dpo", action="store_true")
+)
 def look_up():
     import glob
     import matplotlib.pyplot as plt
     import numpy as np
     from tensorboard.backend.event_processing import event_accumulator
-    logdir = "tensorboard/RM/" + get_args().logdir
+    args = get_args()
+    base = "tensorboard/DPO/" if args.dpo else "tensorboard/RM/" 
+    logdir = base + args.logdir
     result = glob.glob(logdir)
     print(glob.glob(logdir))
     flag = "y"
@@ -241,6 +271,10 @@ def probe_distribution_change_after_train():
 
 @test_mode
 def test_infer_distributed_model():
+    import torch
+    from torch import nn
+    from transformers import AutoTokenizer
+    from main import load_model
     class TMP(nn.Module):
         def __init__(self, mpath, cuda_list, memory):
             super().__init__()
@@ -276,6 +310,11 @@ def test_infer_distributed_model():
 
 @test_mode
 def test_train_distributed_model():
+    import torch
+    from torch import nn
+    from torch.optim import SGD
+    from transformers import AutoTokenizer
+    from main import load_model
     mpath = "/root/model/phi-2"
     tokenizer = AutoTokenizer.from_pretrained(mpath, trust_remote_code=True)
     print(tokenizer.pad_token, tokenizer.pad_token_id)
@@ -307,5 +346,3 @@ if __name__ == "__main__":
     else:
         train()
     
-
-
