@@ -204,6 +204,27 @@ def train():
 
 
 @param(
+    Arg("--mpath", type=str, default="/root/model/phi-2"),
+    Arg("--base_fpath", type=str, default="qa_status/"),
+    Arg("--fpath", type=str, default="DPOed_train_1000"),
+    Arg("--fp_qa", type=str, default="/root/exp-modeling/data/dpo_sample_train.json"),
+    Arg("--eval", action="store_true"),
+    Arg("--n", type=int, default=1)
+)
+def analyze():
+    from transformers import AutoTokenizer
+    from analyze import Controller
+    args = get_args()
+    if args.eval:
+        args.fpath = args.fpath.replace("train", "eval")
+        args.fp_qa = args.fp_qa.replace("train", "eval")
+    fpath = args.base_fpath + args.fpath + ".jsonl"
+    tokenizer = AutoTokenizer.from_pretrained(args.mpath, trust_remote_code=True)
+    controller = Controller(tokenizer, fpath, args.fp_qa)
+    controller.display(args.n)
+
+
+@param(
     Arg("--logdir", "-l", type=str, default=""), 
     Arg("--dpo", action="store_true")
 )
@@ -267,6 +288,9 @@ def probe_distribution_change_after_train():
         "Is the sun visible every day in the sky?",
         "What is the brightest object in the daytime sky?",
     ]
+
+#########################################################################################
+#   TEST
 
 
 @test_mode

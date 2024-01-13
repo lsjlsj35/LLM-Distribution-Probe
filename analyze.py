@@ -21,11 +21,14 @@ class ColorSettor:
         1: S.NORMAL,
         2: S.BRIGHT
     }
-    def __init__(self):
+    def __init__(self, verbose=None):
         self.fore = 3
         self.back = 2
         self.style = 1
-        self.init_display2()
+        if verbose == '1':
+            self.init_display1()
+        elif verbose == "2":
+            self.init_display2()
 
     def init_display1(self):
         tmp = ["best", "good", "bad", "worst"]
@@ -115,9 +118,9 @@ class ColorSettor:
 
 
 class Controller:
-    def __init__(self, tokenizer, fp, fp_qa):
+    def __init__(self, tokenizer, fp, fp_qa, verbose=None):
         self.tokenizer = tokenizer
-        self.cs = ColorSettor()
+        self.cs = ColorSettor(verbose=verbose)
         self.status = self._load_status(fp)
         self.completion = self._load_completion(fp_qa)
 
@@ -137,15 +140,25 @@ class Controller:
         """
         prompt will be added.
         """
-        pref = item["preference"]
-        q = item["instruction"] + '\n' + item["input"]
-        w = item[f"output_{pref}"]
-        l = item[f"output_{3-pref}"]
-        return {
-            "input": q,
-            "w": "[Round 1]\n\n问：{}\n\n答：{}".format(q, w),
-            "l": "[Round 1]\n\n问：{}\n\n答：{}".format(q, l)
-        }
+        if "preference" in item:
+            pref = item["preference"]
+            q = item["instruction"] + '\n' + item["input"]
+            w = item[f"output_{pref}"]
+            l = item[f"output_{3-pref}"]
+            return {
+                "input": q,
+                "w": "[Round 1]\n\n问：{}\n\n答：{}".format(q, w),
+                "l": "[Round 1]\n\n问：{}\n\n答：{}".format(q, l)
+            }
+        else:
+            q = item["input"]
+            w = item["win"]
+            l = item["lose"]
+            return {
+                "input": q,
+                "w": "Instruct: {}\nOutput: {}\n<|endoftext|>".format(q, w),
+                "l": "Instruct: {}\nOutput: {}\n<|endoftext|>".format(q, l)
+            }
 
     def _display_a(self, pin, pcompletion, p_seq, r_seq, p_normalized=False):
         """
