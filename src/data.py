@@ -23,7 +23,7 @@ def load_and_preprocess(args, tokenizer, split_from_train_ratio=None, shuffle_se
     train_dataset = train_dataset.map(
         dataset_config["preprocess_func"],
         batched=True,
-        fn_kwargs={"tokenizer": tokenizer, "config": tokenize_config},
+        fn_kwargs={"tokenizer": tokenizer, "config": {"train_eval": "train", **tokenize_config}},
         remove_columns=dataset_config["remove_columns"]
     )
     train_dataset = train_dataset.filter(
@@ -37,7 +37,7 @@ def load_and_preprocess(args, tokenizer, split_from_train_ratio=None, shuffle_se
         eval_dataset = eval_dataset.map(
             dataset_config["preprocess_func"],
             batched=True,
-            fn_kwargs={"tokenizer": tokenizer, "config": tokenize_config},
+            fn_kwargs={"tokenizer": tokenizer, "config": {"train_eval": "eval", **tokenize_config}},
             remove_columns=dataset_config["remove_columns"]
         )
         eval_dataset = eval_dataset.filter(
@@ -51,6 +51,8 @@ def load_and_preprocess(args, tokenizer, split_from_train_ratio=None, shuffle_se
             thre = int(total * split_from_train_ratio)
             eval_dataset = train_dataset.select(range(thre))
             train_dataset = train_dataset.select(range(thre, total))
+    if "extra_map" in dataset_config and dataset_config["extra_map"]:
+        train_dataset = train_dataset.map(dataset_config["extra_map"])
     if "extra_filter" in dataset_config and dataset_config["extra_filter"]:
         train_dataset = train_dataset.filter(dataset_config["extra_filter"])
     if len(train_dataset) > args.max_dataset_length:
@@ -116,7 +118,7 @@ def preprocess_alpaca_ref(examples, tokenizer, config):
         return new_examples
     
 
-def preprocess_wrapper_alpaca_ref_with_inverse(inv=0):
+def preprocess_wrapper_alpaca_ref_with_inverse(inv=0, reverse_eval=True):
     def func(examples, tokenizer, config):
         new_examples = {
             "chosen_input_ids": [],
@@ -127,7 +129,7 @@ def preprocess_wrapper_alpaca_ref_with_inverse(inv=0):
         func = config["tokenize_func"]
         if "consensus" not in examples:
             for q, w, l in zip(examples["input"], examples["win"], examples["lose"]):
-                if random.random() < inv:
+                if random.random() < inv and (config["train_eval"] == "train" or reverse_eval):
                     w, l = l, w
                 qw = func(q, w, tokenizer)
                 ql = func(q, l, tokenizer)
@@ -139,7 +141,7 @@ def preprocess_wrapper_alpaca_ref_with_inverse(inv=0):
         else:
             new_examples["consensus"] = []
             for q, w, l, con in zip(examples["input"], examples["win"], examples["lose"], examples["consensus"]):
-                if random.random() < inv:
+                if random.random() < inv and (config["train_eval"] == "train" or reverse_eval):
                     w, l = l, w
                 qw = func(q, w, tokenizer)
                 ql = func(q, l, tokenizer)
@@ -224,6 +226,31 @@ DATASET_CONFIG = {
     "dpo": {
         "path_train": "/root/exp-modeling/data/dpo_sample_train.json",
         "path_eval": "/root/exp-modeling/data/dpo_sample_eval.json"
+    },
+    "dpo-inv": {
+        "path_train": "/root/exp-modeling/data/dpo_sample_train.json",
+        "path_eval": "/root/exp-modeling/data/dpo_sample_eval.json",
+        "preprocess_func": preprocess_wrapper_alpaca_ref_with_inverse(inv=1)
+    },
+    "dpo-10": {
+        "path_train": "/root/exp-modeling/data/dpo_sample_train.json",
+        "path_eval": "/root/exp-modeling/data/dpo_sample_eval.json",
+        "preprocess_func": preprocess_wrapper_alpaca_ref_with_inverse(inv=0.1, reverse_eval=False)
+    },
+    "dpo-30": {
+        "path_train": "/root/exp-modeling/data/dpo_sample_train.json",
+        "path_eval": "/root/exp-modeling/data/dpo_sample_eval.json",
+        "preprocess_func": preprocess_wrapper_alpaca_ref_with_inverse(inv=0.3, reverse_eval=False)
+    },
+    "dpo-50": {
+        "path_train": "/root/exp-modeling/data/dpo_sample_train.json",
+        "path_eval": "/root/exp-modeling/data/dpo_sample_eval.json",
+        "preprocess_func": preprocess_wrapper_alpaca_ref_with_inverse(inv=0.5, reverse_eval=False)
+    },
+    "dpo-70": {
+        "path_train": "/root/exp-modeling/data/dpo_sample_train.json",
+        "path_eval": "/root/exp-modeling/data/dpo_sample_eval.json",
+        "preprocess_func": preprocess_wrapper_alpaca_ref_with_inverse(inv=0.7, reverse_eval=False)
     },
     "alpaca-human-0": {
         "path_train": "/root/exp-modeling/data/phi_2-alpaca_human_pref-I0.json",
